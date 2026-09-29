@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#2e7d32">
+<title>DogMy - Paseadores</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="contenedor">
+<div class="tarjeta">
+<img src="logo.jpg" class="logo" alt="DogMy">
+
+<h1>🐕 DogMy</h1>
+<p class="subtitulo">Paseos con seguimiento en vivo</p>
+
+<div id="panelLogin">
+    <input type="email" id="usuario" placeholder="Tu correo" autocomplete="username">
+    <input type="password" id="contrasena" placeholder="Contraseña" autocomplete="current-password">
+    <button id="btnIngresar">🐾 Ingresar</button>
+    <p style="font-size:14px;color:#555;margin-top:16px;">¿Eres paseador y aún no tienes cuenta?</p>
+    <button onclick="mostrarPanel('registro')" style="background:#2196f3;">✍️ Crear mi cuenta</button>
+</div>
+
+<div id="panelRegistro" style="display:none;">
+    <input type="text" id="regNombre" placeholder="Tu nombre" autocomplete="name">
+    <input type="email" id="regCorreo" placeholder="Tu correo (Gmail, Hotmail, Yahoo...)" autocomplete="email">
+    <input type="password" id="regContrasena" placeholder="Contraseña (mínimo 6 caracteres)" autocomplete="new-password">
+    <input type="password" id="regContrasena2" placeholder="Repite la contraseña" autocomplete="new-password">
+    <button id="btnRegistrar">✅ Crear cuenta y entrar</button>
+    <button onclick="mostrarPanel('login')" style="background:#9e9e9e;">← Ya tengo cuenta</button>
+</div>
+
+<p class="version">Versión <strong>9.0</strong></p>
+</div>
+</div>
+
+<script type="module" src="script.js"></script>
+
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(function(){});
+}
+</script>
+
+</body>
+</html>

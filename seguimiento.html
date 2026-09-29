@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#2e7d32">
+<title>DogMy - Seguimiento del paseo</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: Arial, sans-serif;
+    background: linear-gradient(135deg, #ffe600, #7ed957);
+    display: flex; justify-content: center; align-items: flex-start;
+    min-height: 100vh; padding: 15px;
+}
+.tarjeta {
+    width: 100%; max-width: 460px; background: #fff;
+    padding: 22px; border-radius: 20px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.25); text-align: center;
+}
+.logo { width: 70px; height: 70px; border-radius: 50%; object-fit: cover; box-shadow: 0 3px 10px rgba(0,0,0,.15); }
+h1 { color: #2e7d32; font-size: 22px; margin: 8px 0 2px; }
+.sub { color: #666; font-size: 14px; margin-bottom: 10px; }
+.pastilla { display: inline-block; padding: 7px 14px; border-radius: 20px; font-weight: bold; font-size: 14px; margin: 6px 0 10px; }
+.vivo { background: #d4edda; color: #155724; }
+.fin { background: #cfe8ff; color: #0b4a8f; }
+#mapa { height: 320px; border-radius: 14px; border: 2px solid #2196f3; overflow: hidden; margin: 8px 0; }
+.datos { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0; }
+.dato { background: #fff8e1; border: 2px solid #ffc107; border-radius: 12px; padding: 10px; }
+.dato .n { font-size: 20px; font-weight: bold; color: #2e7d32; font-family: 'Courier New', monospace; }
+.dato .t { font-size: 12px; color: #856404; }
+.paseador { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 6px 0; color: #444; font-size: 14px; }
+.paseador img { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid #2e7d32; }
+.fotos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.fotos img { width: 100%; height: 130px; object-fit: cover; border-radius: 10px; cursor: pointer; }
+.nota { font-size: 12px; color: #888; margin-top: 12px; }
+.grande { font-size: 46px; margin: 10px 0; }
+.resumen-img { width: 100%; border-radius: 12px; border: 2px solid #bfe3ec; cursor: pointer; margin: 8px 0; }
+.marcador-perro-caminando {
+    font-size: 26px; text-align: center; line-height: 38px; width: 38px; height: 38px;
+    background: #fff; border: 3px solid #2e7d32; border-radius: 50%;
+    box-shadow: 0 3px 10px rgba(0,0,0,.3);
+    animation: caminar .6s ease-in-out infinite alternate;
+}
+@keyframes caminar { 0% { transform: translateY(0); } 100% { transform: translateY(-4px); } }
+</style>
+</head>
+<body>
+<div class="tarjeta">
+    <img src="logo.jpg" class="logo" alt="DogMy">
+    <div id="vista"><p class="sub" style="margin-top:20px;">Cargando el paseo...</p></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script type="module">
+import { db } from "./firebase-config.js";
+import { ref, onValue } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
+import {
+    normalizarUbicaciones, calcularDistanciaRuta, filtrarDesde, formatDistancia,
+    formatTiempo, crearIconoBandera, crearIconoPerro, dibujarEventos, abrirImagenCompleta
+} from "./utils.js";
+
+const params = new URLSearchParams(location.search);
+const paseoId = params.get("p");
+const claveEntrada = params.get("d");
+const vista = document.getElementById("vista");
+
+const esc = t => String(t == null ? "" : t)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+let modo = null;            // null | "vivo" | "resumen" | "cerrado"
+let primeraLectura = true;
+let cancelarPaseo = null;
+let cancelarFotos = null;
+let detenerPronto = false;
+let mapa = null, capaRuta = null, capaEventos = null, capaBanderas = null, marcadorPerro = null;
+let temporizador = null;
+
+// ---------- Pantalla: enlace no disponible ----------
+function mostrarNoDisponible() {
+    modo = "cerrado";
+    apagarTodo();
+    vista.innerHTML = `
+        <div class="grande">🐾</div>
+        <h1>Este enlace ya no está disponible</h1>
+        <p class="sub">El paseo ya terminó o el enlace no es válido.<br>Pídele a tu paseador uno nuevo la próxima vez que salga con tu cachorro.</p>`;
+}
+
+function apagarTodo() {
+    if (cancelarPaseo) { cancelarPaseo(); cancelarPaseo = null; } else { detenerPronto = true; }
+    if (cancelarFotos) { cancelarFotos(); cancelarFotos = null; }
+    if (temporizador) { clearInterval(temporizador); temporizador = null; }
+    if (mapa) { mapa.remove(); mapa = null; }
+}
+
+// ---------- Fotos del perro (se actualizan solas) ----------
+function escucharFotos() {
+    if (cancelarFotos) return;
+    cancelarFotos = onValue(ref(db, "fotosPaseo/" + paseoId + "/" + claveEntrada), snap => {
+        const cont = document.getElementById("fotos");
+        if (!cont) return;
+        const fotos = Object.values(snap.val() || {})
+            .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+        cont.innerHTML = fotos.length
+            ? '<div class="fotos">' + fotos.map(f => `<img src="${f.imagen}" alt="Foto del paseo">`).join("") + "</div>"
+            : "";
+        cont.querySelectorAll("img").forEach(img => { img.onclick = () => abrirImagenCompleta(img.src); });
+    });
+}
+
+// ---------- Pantalla: paseo en vivo ----------
+function construirVivo(paseo, entrada) {
+    modo = "vivo";
+    const foto = paseo.paseadorFoto ? `<img src="${paseo.paseadorFoto}" alt="Paseador">` : "";
+    vista.innerHTML = `
+        <h1>🐕 ${esc(entrada.nombre)}</h1>
+        <p class="sub">está de paseo en este momento</p>
+        <span class="pastilla vivo">🟢 En paseo — en vivo</span>
+        <div class="paseador">${foto}<span>Lo pasea <b>${esc(paseo.paseadorNombre || "su paseador")}</b></span></div>
+        <div id="mapa"></div>
+        <p id="esperando" class="sub">📡 Esperando la primera ubicación...</p>
+        <div class="datos">
+            <div class="dato"><div class="n" id="tiempo">00:00:00</div><div class="t">⏱️ Tiempo de paseo</div></div>
+            <div class="dato"><div class="n" id="distancia">0 m</div><div class="t">📏 Distancia</div></div>
+        </div>
+        <div id="fotos"></div>
+        <p class="nota">Esta página se actualiza sola. Cuando termine el paseo verás aquí el resumen final.</p>`;
+
+    mapa = L.map("mapa").setView([19.4326, -99.1332], 15);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap" }).addTo(mapa);
+    capaRuta = L.layerGroup().addTo(mapa);
+    capaEventos = L.layerGroup().addTo(mapa);
+    capaBanderas = L.layerGroup().addTo(mapa);
+    setTimeout(() => mapa && mapa.invalidateSize(), 200);
+
+    const tiempoEl = document.getElementById("tiempo");
+    const tick = () => {
+        const diff = Math.floor((Date.now() - new Date(entrada.inicio).getTime()) / 1000);
+        tiempoEl.textContent = formatTiempo(diff >= 0 ? diff : 0);
+    };
+    tick();
+    temporizador = setInterval(tick, 1000);
+    escucharFotos();
+}
+
+function actualizarVivo(paseo, entrada) {
+    if (!mapa) return;
+    const ubs = filtrarDesde(paseo.ubicaciones, entrada.inicio);
+    capaRuta.clearLayers();
+    capaBanderas.clearLayers();
+    if (ubs.length === 0) return;
+
+    document.getElementById("esperando").style.display = "none";
+    L.marker([ubs[0].lat, ubs[0].lon], { icon: crearIconoBandera("#1565c0") })
+        .addTo(capaBanderas).bindPopup("🔵 Aquí empezó el paseo");
+    L.polyline(ubs.map(u => [u.lat, u.lon]), { color: "red", weight: 4 }).addTo(capaRuta);
+    dibujarEventos(capaEventos, ubs);
+
+    const ultimo = ubs[ubs.length - 1];
+    if (marcadorPerro) capaRuta.removeLayer(marcadorPerro);
+    marcadorPerro = L.marker([ultimo.lat, ultimo.lon], { icon: crearIconoPerro() }).addTo(capaRuta);
+    mapa.setView([ultimo.lat, ultimo.lon]);
+
+    document.getElementById("distancia").textContent = formatDistancia(calcularDistanciaRuta(ubs));
+}
+
+// ---------- Pantalla: resumen final (solo si la tenias abierta) ----------
+function mostrarResumen(entrada) {
+    modo = "resumen";
+    if (cancelarPaseo) { cancelarPaseo(); cancelarPaseo = null; }
+    if (temporizador) { clearInterval(temporizador); temporizador = null; }
+    if (mapa) { mapa.remove(); mapa = null; }
+    const metros = entrada.distancia || 0;
+    const min = entrada.minutos || 0;
+    vista.innerHTML = `
+        <div class="grande">✅</div>
+        <h1>¡Paseo terminado!</h1>
+        <p class="sub">${esc(entrada.nombre)} ya fue entregado</p>
+        <span class="pastilla fin">Resumen del paseo</span>
+        ${entrada.imagenRuta ? `<img id="imgRuta" class="resumen-img" src="${entrada.imagenRuta}" alt="Recorrido">` : '<p class="sub">No se registró recorrido.</p>'}
+        <div class="datos">
+            <div class="dato"><div class="n">${min} min</div><div class="t">⏱️ Duración</div></div>
+            <div class="dato"><div class="n">${formatDistancia(metros)}</div><div class="t">📏 Distancia</div></div>
+        </div>
+        <div id="fotos"></div>
+        <p class="nota">Cuando cierres esta página, este enlace ya no volverá a abrirse.</p>`;
+    const img = document.getElementById("imgRuta");
+    if (img) img.onclick = () => abrirImagenCompleta(img.src);
+    // Se vuelve a escuchar para que las fotos se dibujen en la pantalla nueva
+    if (cancelarFotos) { cancelarFotos(); cancelarFotos = null; }
+    escucharFotos();
+}
+
+// ---------- Escucha del paseo ----------
+if (!paseoId || !claveEntrada) {
+    mostrarNoDisponible();
+} else {
+    cancelarPaseo = onValue(ref(db, "paseos/" + paseoId), snap => {
+        if (modo === "cerrado" || modo === "resumen") return;
+        const paseo = snap.val();
+        const entrada = paseo && paseo.perros && paseo.perros[claveEntrada];
+
+        // Enlace inexistente
+        if (!entrada) { mostrarNoDisponible(); return; }
+
+        const terminado = entrada.estado === "entregado" || paseo.estado === "completado";
+        if (terminado) {
+            if (primeraLectura) mostrarNoDisponible();   // llegaste tarde: ya caduco
+            else mostrarResumen(entrada);                 // lo tenias abierto: ves el resumen
+            primeraLectura = false;
+            return;
+        }
+
+        primeraLectura = false;
+        if (modo !== "vivo") construirVivo(paseo, entrada);
+        actualizarVivo(paseo, entrada);
+    }, () => mostrarNoDisponible());
+    if (detenerPronto) { cancelarPaseo(); cancelarPaseo = null; }
+}
+</script>
+</body>
+</html>

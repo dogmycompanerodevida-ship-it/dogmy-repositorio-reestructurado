@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#2e7d32">
+<title>DogMy - Dueño</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="contenedor">
+<div class="tarjeta">
+<img src="logo.jpg" class="logo" alt="DogMy">
+<h1>🔒 Panel del dueño</h1>
+
+<div id="panelClave">
+    <p class="subtitulo">Escribe tu contraseña</p>
+    <input type="password" id="clave" placeholder="Contraseña del dueño">
+    <button id="btnEntrar">Entrar</button>
+</div>
+
+<div id="panelConteo" style="display:none;">
+    <p class="subtitulo">Paseadores registrados</p>
+    <p id="conteo" style="font-size:64px;font-weight:bold;color:#2e7d32;margin:10px 0;">…</p>
+    <button id="btnActualizar" style="background:#2196f3;">🔄 Actualizar</button>
+    <button id="btnSalir" style="background:#9e9e9e;">Salir</button>
+</div>
+</div>
+</div>
+
+<script type="module">
+import { db } from "./firebase-config.js";
+import { ref, get, query, orderByChild, equalTo } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
+
+// Contraseña del dueño (guardada como huella SHA-256, no en texto claro).
+// Para cambiarla, pídeme la nueva huella.
+const HUELLA_CLAVE = "fe92076bfdbf47cab8ed7d43df87bd54a7123c34f3a3b25a36adb6310470eb1a";
+
+async function huella(texto) {
+    const datos = new TextEncoder().encode("dueno:" + texto);
+    const buf = await crypto.subtle.digest("SHA-256", datos);
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function contar() {
+    const el = document.getElementById("conteo");
+    el.textContent = "…";
+    try {
+        const snap = await get(query(ref(db, "usuarios"), orderByChild("tipo"), equalTo("paseador")));
+        el.textContent = snap.exists() ? Object.keys(snap.val()).length : 0;
+    } catch (e) {
+        console.error(e);
+        el.textContent = "—";
+        alert("No se pudo leer el conteo. Revisa tu internet.");
+    }
+}
+
+async function entrar() {
+    const clave = document.getElementById("clave").value;
+    if (!clave) return;
+    if ((await huella(clave)) !== HUELLA_CLAVE) { alert("Contraseña incorrecta."); return; }
+    document.getElementById("panelClave").style.display = "none";
+    document.getElementById("panelConteo").style.display = "block";
+    contar();
+}
+
+document.getElementById("btnEntrar").onclick = entrar;
+document.getElementById("clave").addEventListener("keydown", e => { if (e.key === "Enter") entrar(); });
+document.getElementById("btnActualizar").onclick = contar;
+document.getElementById("btnSalir").onclick = () => location.reload();
+</script>
+</body>
+</html>
