@@ -87,6 +87,8 @@ jobs:
 
       - name: Configurar Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: ''
 
       - name: Dar permisos de ejecucion a gradlew
         working-directory: android
