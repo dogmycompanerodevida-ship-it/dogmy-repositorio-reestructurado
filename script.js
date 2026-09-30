@@ -27,7 +27,7 @@ import {
 // Dentro de la app instalada este dato es obligatorio (la app no vive en
 // internet, asi que no puede adivinar la direccion). En la version web se
 // usa automaticamente la direccion del propio sitio.
-const URL_SEGUIMIENTO = "";
+const URL_SEGUIMIENTO = "https://dogmycompanerodevida-ship-it.github.io/dogmy-repositorio-reestructurado/";
 
 function urlBaseSeguimiento() {
     if (URL_SEGUIMIENTO) return URL_SEGUIMIENTO.replace(/\/+$/, "");
